@@ -1,0 +1,39 @@
+---
+# falcon_events.yml  -  Event-Driven Ansible rulebook
+#
+# Receives the webhook that Falcon Fusion SOAR would send (simulated by send_falcon_event.py in this lab)
+# and launches the "Remediate Notepad++ CVE" job template for the affected host.
+#
+# Expected JSON body:
+#   {"severity": "HIGH", "app": "Notepad++", "cve": "DEMO-CVE-0001", "hostname": "WS-0142"}
+#   (DEMO-CVE-0001 is a simulated id for this lab, not a real CVE)
+#
+# AAP 2.4: the webhook listens on port 5000 inside the activation; expose that port.
+# AAP 2.5+: create an Event Stream and map this source to it when you create the activation
+#           (the Event Stream gives you the URL to POST to). Check your version's docs.
+
+- name: Falcon Spotlight findings
+  hosts: all
+
+  sources:
+    - ansible.eda.webhook:
+        host: 0.0.0.0
+        port: 5000
+
+  rules:
+    - name: Remediate high severity Notepad++ findings
+      condition: >-
+        event.payload.severity in ["High", "HIGH", "Critical", "CRITICAL"] and
+        event.payload.app in ["Notepad++", "notepad++", "NOTEPAD++"]
+      throttle:
+        once_within: 2 minutes
+        group_by_attributes:
+          - event.payload.hostname
+      action:
+        run_job_template:
+          name: Remediate Notepad++ CVE
+          organization: Default
+          job_args:
+            limit: "{{ event.payload.hostname }}"
+            extra_vars:
+              cve_id: "{{ event.payload.cve }}"
