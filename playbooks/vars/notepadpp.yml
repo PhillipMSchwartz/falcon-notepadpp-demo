@@ -1,0 +1,23 @@
+---
+# Shared by remediate_notepadpp.yml and reset_notepadpp.yml.
+#
+# SIMULATED VULNERABILITY: DEMO-CVE-0001 is a made-up id for this lab, not a real CVE.
+# The lab simply treats Notepad++ builds below fixed_version as "vulnerable". The version
+# upgrade itself is real. Say so on camera. Any two published releases work here.
+default_cve_id: DEMO-CVE-0001
+vulnerable_version: "8.8.1"     # what reset_notepadpp.yml installs (the "before" state)
+fixed_version: "8.8.2"          # minimum build that counts as remediated
+
+# Official Notepad++ releases on GitHub. The Windows host downloads them directly,
+# so no helper web server is needed. Override with a URL on your helper box if the host has no internet.
+npp_release_base: "https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download"
+npp_install_dir: 'C:\Program Files\Notepad++'
+npp_download_dir: 'C:\Windows\Temp'
+
+# Prints the installed version, or 0.0.0 if Notepad++ is not installed.
+npp_version_script: |
+  $k = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Notepad++'
+  $exe = Join-Path '{{ npp_install_dir }}' 'notepad++.exe'
+  if (Test-Path $k) { (Get-ItemProperty $k).DisplayVersion }
+  elseif (Test-Path $exe) { (Get-Item $exe).VersionInfo.ProductVersion }
+  else { '0.0.0' }
