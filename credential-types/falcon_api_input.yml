@@ -1,0 +1,19 @@
+---
+# AAP: Administration > Credential Types > Add. Name: "Falcon API (demo)"
+# Paste this into "Input configuration".
+fields:
+  - id: base_url
+    type: string
+    label: Falcon API base URL
+    help_text: "Lab: http://<mock host>:8080   Real: your Falcon cloud API URL"
+  - id: client_id
+    type: string
+    label: API client ID
+  - id: client_secret
+    type: string
+    label: API client secret
+    secret: true
+required:
+  - base_url
+  - client_id
+  - client_secret

@@ -1,0 +1,6 @@
+---
+# Paste this into "Injector configuration" of the same credential type.
+env:
+  FALCON_API_BASE: '{{ base_url }}'
+  FALCON_CLIENT_ID: '{{ client_id }}'
+  FALCON_CLIENT_SECRET: '{{ client_secret }}'
