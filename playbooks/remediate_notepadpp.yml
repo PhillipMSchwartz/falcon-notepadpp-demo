@@ -1,0 +1,107 @@
+---
+# remediate_notepadpp.yml  -  AAP job template "Remediate Notepad++ CVE"
+#
+# Inputs
+#   extra var  cve_id     set by the EDA rule (defaults to default_cve_id when launched by hand)
+#   env vars   FALCON_API_BASE, FALCON_CLIENT_ID, FALCON_CLIENT_SECRET
+#              injected by the custom "Falcon API (demo)" credential type
+#
+# Versions and CVE live in vars/notepadpp.yml. Confirm them against the advisory before recording.
+
+- name: Remediate Notepad++ CVE on Falcon-flagged hosts
+  hosts: windows_endpoints
+  gather_facts: false
+
+  vars_files:
+    - vars/notepadpp.yml
+
+  vars:
+    target_cve: "{{ cve_id | default(default_cve_id, true) }}"
+    installer_url: "{{ npp_release_base }}/v{{ fixed_version }}/npp.{{ fixed_version }}.Installer.x64.exe"
+    installer_path: '{{ npp_download_dir }}\npp_fixed_installer.exe'
+    poll_retries: 20
+    poll_delay: 5
+    falcon_api_base: "{{ lookup('env', 'FALCON_API_BASE') }}"
+
+  tasks:
+    # ---- Before state ---------------------------------------------------
+    - name: Get installed Notepad++ version (before)
+      ansible.windows.win_powershell:
+        error_action: stop
+        script: "{{ npp_version_script }}"
+      register: before
+      changed_when: false
+
+    - name: Show before state
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: Notepad++ {{ before.output[0] | trim }} ({{ target_cve }} fixed in {{ fixed_version }})"
+
+    # ---- Remediate only if vulnerable -----------------------------------
+    - name: Update Notepad++
+      when: (before.output[0] | trim) is version(fixed_version, '<')
+      block:
+        - name: Download fixed Notepad++ installer
+          ansible.windows.win_get_url:
+            url: "{{ installer_url }}"
+            dest: "{{ installer_path }}"
+
+        - name: Install fixed Notepad++ silently
+          ansible.windows.win_powershell:
+            error_action: stop
+            script: |
+              $p = Start-Process -FilePath '{{ installer_path }}' -ArgumentList '/S' -Wait -PassThru
+              if ($p.ExitCode -ne 0) { throw "Installer exited with $($p.ExitCode)" }
+
+        - name: Remove downloaded installer
+          ansible.windows.win_file:
+            path: "{{ installer_path }}"
+            state: absent
+
+    # ---- Local verification ---------------------------------------------
+    - name: Get installed Notepad++ version (after)
+      ansible.windows.win_powershell:
+        error_action: stop
+        script: "{{ npp_version_script }}"
+      register: after
+      changed_when: false
+
+    - name: Assert fixed version is installed
+      ansible.builtin.assert:
+        that: (after.output[0] | trim) is version(fixed_version, '>=')
+        success_msg: "{{ inventory_hostname }}: Notepad++ {{ after.output[0] | trim }} >= {{ fixed_version }}"
+        fail_msg: "{{ inventory_hostname }} is still on Notepad++ {{ after.output[0] | trim }}"
+
+    # ---- Verify against Falcon (simulated by mock_falcon.py in this lab) -
+    - name: Confirm finding closes in Falcon Spotlight
+      delegate_to: localhost
+      block:
+        - name: Get Falcon API token
+          ansible.builtin.uri:
+            url: "{{ falcon_api_base }}/oauth2/token"
+            method: POST
+            body_format: form-urlencoded
+            body:
+              client_id: "{{ lookup('env', 'FALCON_CLIENT_ID') }}"
+              client_secret: "{{ lookup('env', 'FALCON_CLIENT_SECRET') }}"
+            status_code: 201
+          register: falcon_token
+          no_log: true
+
+        - name: Poll Falcon Spotlight until the finding is closed
+          vars:
+            spotlight_filter: "status:'open'+cve.id:'{{ target_cve }}'+host_info.hostname:'{{ inventory_hostname }}'"
+          ansible.builtin.uri:
+            url: "{{ falcon_api_base }}/spotlight/combined/vulnerabilities/v1?{{ {'filter': spotlight_filter, 'limit': 5} | urlencode }}"
+            method: GET
+            headers:
+              Authorization: "Bearer {{ falcon_token.json.access_token }}"
+            return_content: true
+          register: spotlight
+          until: spotlight.json.resources | length == 0
+          retries: "{{ poll_retries }}"
+          delay: "{{ poll_delay }}"
+          changed_when: false
+
+        - name: Report result
+          ansible.builtin.debug:
+            msg: "{{ inventory_hostname }}: {{ target_cve }} is no longer open in Falcon Spotlight"

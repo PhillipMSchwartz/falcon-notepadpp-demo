@@ -1,0 +1,59 @@
+---
+# reset_notepadpp.yml  -  AAP job template "Reset Notepad++ (demo)"
+#
+# Puts the host back in the vulnerable state between takes: uninstalls the current Notepad++,
+# installs vulnerable_version from vars/notepadpp.yml, and disables the Notepad++ auto-updater
+# so the app cannot fix itself before the demo. Replaces the "revert VM snapshot" step on EC2.
+
+- name: Reset Notepad++ to the vulnerable build (demo only)
+  hosts: windows_endpoints
+  gather_facts: false
+
+  vars_files:
+    - vars/notepadpp.yml
+
+  vars:
+    installer_url: "{{ npp_release_base }}/v{{ vulnerable_version }}/npp.{{ vulnerable_version }}.Installer.x64.exe"
+    installer_path: '{{ npp_download_dir }}\npp_vulnerable_installer.exe'
+
+  tasks:
+    - name: Download vulnerable Notepad++ installer
+      ansible.windows.win_get_url:
+        url: "{{ installer_url }}"
+        dest: "{{ installer_path }}"
+
+    - name: Uninstall current Notepad++ and install the vulnerable build
+      ansible.windows.win_powershell:
+        error_action: stop
+        script: |
+          $dir = '{{ npp_install_dir }}'
+          Get-Process notepad++ -ErrorAction SilentlyContinue | Stop-Process -Force
+          $un = Join-Path $dir 'uninstall.exe'
+          if (Test-Path $un) {
+            # NSIS uninstallers relaunch themselves from %TEMP%; _?= keeps it in-process so -Wait works
+            Start-Process -FilePath $un -ArgumentList '/S', "_?=$dir" -Wait
+            Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          $p = Start-Process -FilePath '{{ installer_path }}' -ArgumentList '/S' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Installer exited with $($p.ExitCode)" }
+          # Disable the built-in updater (WinGUp) so the vulnerable build stays put
+          $up = Join-Path $dir 'updater'
+          if (Test-Path $up) { Remove-Item $up -Recurse -Force }
+
+    - name: Remove downloaded installer
+      ansible.windows.win_file:
+        path: "{{ installer_path }}"
+        state: absent
+
+    - name: Get installed Notepad++ version
+      ansible.windows.win_powershell:
+        error_action: stop
+        script: "{{ npp_version_script }}"
+      register: current
+      changed_when: false
+
+    - name: Assert host is in the vulnerable state
+      ansible.builtin.assert:
+        that: (current.output[0] | trim) is version(fixed_version, '<')
+        success_msg: "{{ inventory_hostname }}: Notepad++ {{ current.output[0] | trim }} (vulnerable, ready for the demo)"
+        fail_msg: "{{ inventory_hostname }} reports Notepad++ {{ current.output[0] | trim }}, not below {{ fixed_version }}"
