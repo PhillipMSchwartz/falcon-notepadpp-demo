@@ -1,0 +1,6 @@
+---
+# Put this at <project root>/collections/requirements.yml. AAP installs it on project sync
+# if the organization has a Galaxy/Automation Hub credential. Otherwise, use an execution
+# environment that already contains it (see README, step 4).
+collections:
+  - name: ansible.windows
