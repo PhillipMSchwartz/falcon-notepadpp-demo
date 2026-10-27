@@ -1,0 +1,17 @@
+---
+# Paste into AAP as an inventory source (Sourced from a Project) or add hosts by hand.
+# Host names must match the hostname you pass to send_falcon_event.py (e.g. WS-0142).
+# The name is a label; it does not have to match the EC2 computer name (EC2AMAZ-...).
+# Username/password come from the AAP Machine credential, not this file.
+all:
+  children:
+    windows_endpoints:
+      hosts:
+        WS-0142:
+          ansible_host: 10.0.0.10            # REPLACE with the Windows instance's PRIVATE IP
+      vars:
+        ansible_connection: winrm
+        ansible_port: 5986
+        ansible_winrm_transport: ntlm
+        ansible_winrm_scheme: https
+        ansible_winrm_server_cert_validation: ignore   # lab only (self-signed cert)
