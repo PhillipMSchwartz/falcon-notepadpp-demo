@@ -27,7 +27,7 @@ Write-Host '== 2. Windows firewall =='
 if (-not (Get-NetFirewallRule -DisplayName 'WinRM HTTPS (demo)' -ErrorAction SilentlyContinue)) {
     New-NetFirewallRule -DisplayName 'WinRM HTTPS (demo)' -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow | Out-Null
 }
-Write-Host 'Reminder: the EC2 security group must also allow TCP 5986 inbound from the AAP instance.'
+Write-Host 'Reminder: the EC2 security group must allow WinRM from the AAP instance (5985, or 5986 for HTTPS).'
 
 Write-Host '== 3. Notepad++ auto-updater =='
 $nppDir = 'C:\Program Files\Notepad++'
