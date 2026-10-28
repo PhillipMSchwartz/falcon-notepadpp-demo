@@ -33,41 +33,47 @@ Push this whole folder to a Git repo AAP can read (GitHub/GitLab; a private repo
 | `inventory/windows_endpoints.yml` | AAP inventory | Host `WS-0142` (set the private IP) |
 | `credential-types/*.yml` | AAP > Credential Types | Injects Falcon API settings as env vars |
 | `windows/Prepare-DemoHost.ps1` | Windows instance, once, elevated | WinRM HTTPS, firewall, disables Notepad++ updater |
-| `mock/mock_falcon.py` | Helper box | Fake Falcon API plus status page |
-| `mock/send_falcon_event.py` | Helper box or laptop | Fires the "Falcon detected it" event |
+| `mock/mock_falcon.py` | AAP host (systemd service) | Fake Falcon API plus status page, port 9080 |
+| `mock/mock-falcon.service` | AAP host, `/etc/systemd/system/` | Keeps the mock running across reboots |
+| `mock/send_falcon_event.py` | AAP host (or any box with Python 3) | Fires the "Falcon detected it" event |
 
 ## 2. Machines (all in AWS)
 
-- **AAP** 2.4 or 2.5+ with Controller and Event-Driven Ansible.
+- **AAP** 2.5+ (built and tested on 2.7, containerized) with Controller and Event-Driven Ansible.
 - **Windows Server 2025** EC2 instance. It downloads the Notepad++ installers from GitHub, so it needs outbound internet (or set `npp_release_base` to a folder you host).
-- **Helper box:** any Linux instance with Python 3 that AAP can reach. The AAP instance itself works. Runs `mock_falcon.py` on port 8080. No web folder is needed for Notepad++.
+- **Mock Falcon** runs on the **AAP host itself** as a systemd service on port **9080** (AAP's nginx already uses 8080). No separate helper box and no web folder are needed.
 
 ### Security group rules
 
 | From | To | Port | Why |
 |---|---|---|---|
-| AAP | Windows | TCP 5986 | WinRM |
-| AAP (execution nodes) | Helper | TCP 8080 | Playbook polls mock Falcon |
-| Your browser IP | Helper | TCP 8080 | Mock Falcon status page on camera |
-| Where you run the sender | EDA | TCP 5000 (2.4) or the Event Stream URL (2.5+) | Webhook |
+| AAP | Windows | TCP 5985 | WinRM over HTTP with NTLM message encryption (what this lab uses) |
+| Your IP | AAP | TCP 9080 | Mock Falcon status page on camera (the playbook's polling stays on the AAP host) |
+| Wherever you run the sender | AAP | TCP 443 | Event Stream URL |
+| Your IP | AAP | TCP 22 | SSH, to install the mock and run the sender |
 | Your IP | Windows | TCP 3389 | RDP, setup only |
 
-Use **private IPs** between instances.
+Use **private IPs** between instances. WinRM over HTTPS (5986) also works if 5986 is open end to end; see the comment in `inventory/windows_endpoints.yml`.
 
 ## 3. Setup
 
 ### Step 1: Windows instance
 1. RDP in as Administrator (EC2 console > Connect > RDP client > Get password).
-2. Copy `windows/Prepare-DemoHost.ps1` over and run it in an **elevated** PowerShell. Note the IP it prints.
+2. Copy `windows/Prepare-DemoHost.ps1` over and run it in an **elevated** PowerShell. Note the IP it prints. (Windows Server 2025 already listens on 5985; the script adds the optional HTTPS listener on 5986.)
 3. Use `Administrator` (or a new local admin) for the AAP Machine credential.
 
-### Step 2: Helper box
+### Step 2: Mock Falcon on the AAP host
+SSH to the AAP host with its EC2 key (`ssh -i <key>.pem ec2-user@<aap-host>`), then:
 ```bash
-mkdir -p ~/falcon-demo && cd ~/falcon-demo
-# copy mock/mock_falcon.py and mock/send_falcon_event.py here
-nohup python3 mock_falcon.py --port 8080 --close-after 3 > mock.log 2>&1 &
+R=https://raw.githubusercontent.com/PhillipMSchwartz/falcon-notepadpp-demo/main/mock
+sudo mkdir -p /opt/mock-falcon
+sudo curl -fsSL -o /opt/mock-falcon/mock_falcon.py $R/mock_falcon.py
+sudo curl -fsSL -o /opt/mock-falcon/send_falcon_event.py $R/send_falcon_event.py
+sudo curl -fsSL -o /etc/systemd/system/mock-falcon.service $R/mock-falcon.service
+sudo systemctl daemon-reload && sudo systemctl enable --now mock-falcon
+curl -s -X POST http://<aap-private-ip>:9080/oauth2/token   # expect a fake token
 ```
-Open `http://<helper-ip>:8080/`: red "MOCK FALCON" banner, "No findings yet". If the helper is RHEL, also `sudo firewall-cmd --add-port=8080/tcp`.
+Status page: `http://<aap-host>:9080/` (red "MOCK FALCON" banner). Logs: `journalctl -u mock-falcon -f`.
 
 ### Step 3: Git project
 1. Set `ansible_host` in `inventory/windows_endpoints.yml` to the Windows private IP.
@@ -75,36 +81,41 @@ Open `http://<helper-ip>:8080/`: red "MOCK FALCON" banner, "No findings yet". If
 3. Commit and push.
 
 ### Step 4: AAP Controller
-1. **Execution environment:** needs `ansible.windows` and `pywinrm`. Either let project sync install the collection (needs an Automation Hub/Galaxy credential) or use an EE that has both. Recent `ee-supported` images include Windows support; check yours.
+1. **Execution environment:** the **Default execution environment** (`ee-supported-rhel9`) already has `ansible.windows` and `pywinrm`.
 2. **Credential type** `Falcon API (demo)`: paste `credential-types/falcon_api_input.yml` into Input configuration and `falcon_api_injector.yml` into Injector configuration.
 3. **Credentials:**
-   - `Falcon API (demo)`: base URL `http://<helper-private-ip>:8080`, client ID `demo`, secret `demo`.
-   - **Machine**: Windows username and password.
-4. **Project:** your Git repo. Sync, confirm Successful.
-5. **Inventory** `Windows Endpoints`: add host `WS-0142` with `ansible_host` and the WinRM vars from `inventory/windows_endpoints.yml`, or source it from the project.
+   - `Falcon API (demo)`: base URL `http://<aap-private-ip>:9080`, client ID `demo`, secret `demo` (dummy values for the mock).
+   - **Machine**: Windows `Administrator` and its password.
+4. **Project:** your Git repo (public, or add a Source Control credential). Sync, confirm Successful.
+5. **Inventory** `Windows Endpoints`: group `windows_endpoints` with the WinRM vars from `inventory/windows_endpoints.yml`, and host `WS-0142` with `ansible_host` set to the Windows private IP.
 6. **Job templates:**
    - `Remediate Notepad++ CVE` (name must match the rulebook exactly): playbook `playbooks/remediate_notepadpp.yml`; credentials Machine + `Falcon API (demo)`; **Prompt on launch** for **Limit** and **Variables**.
    - `Reset Notepad++ (demo)`: playbook `playbooks/reset_notepadpp.yml`; Machine credential only.
 
 ### Step 5: Test by hand
 1. Launch **Reset Notepad++ (demo)**. Expect the final assert: Notepad++ 8.8.1 (vulnerable, ready).
-2. Register a finding: `curl -X POST http://<helper-ip>:8080/mock/findings -d '{"hostname":"WS-0142","cve":"DEMO-CVE-0001","app":"Notepad++"}'`
+2. Register a finding (on the AAP host): `curl -X POST http://<aap-private-ip>:9080/mock/findings -d '{"hostname":"WS-0142","cve":"DEMO-CVE-0001","app":"Notepad++"}'`
 3. Launch **Remediate Notepad++ CVE** with Limit `WS-0142` and Variables `cve_id: DEMO-CVE-0001`.
 4. Expect: before version, download, silent install, assert passes, Falcon poll retries twice, then OK. Mock page flips to CLOSED.
-5. Reset: run the reset template again and `curl http://<helper-ip>:8080/mock/reset`.
+5. Reset: run the reset template again and `curl http://<aap-private-ip>:9080/mock/reset`.
 
 ### Step 6: Event-Driven Ansible
 1. Add the repo as an EDA project; rulebook `rulebooks/falcon_events.yml`.
-2. EDA needs an AAP credential (to launch jobs) and a decision environment.
-3. Create a **Rulebook Activation** `falcon-spotlight-events`. On 2.5+, create an **Event Stream**, map the webhook source to it, and note its URL. On 2.4, the URL is `http://<eda-host>:5000/endpoint`.
-4. Wait for **Running**.
+2. Under **Automation Decisions > Infrastructure > Credentials**, create:
+   - a **Red Hat Ansible Automation Platform** credential (URL `https://<aap-host>/api/controller/`, an AAP user, Verify SSL off for a self-signed cert), so EDA can launch jobs;
+   - a **Token Event Stream** credential with a token you choose (header key `Authorization`).
+3. Create an **Event Stream** `falcon-spotlight-stream` with the token credential, and note its URL.
+4. Create a **Rulebook Activation** `falcon-spotlight-events`: the rulebook, the AAP credential, the **Hub Default Decision Environment** (the `registry.redhat.io` one fails without a Red Hat registry login), and map the rulebook's source `__SOURCE_1` to the Event Stream.
+5. Wait for **Running**.
 
 ### Step 7: End to end
+On the AAP host:
 ```bash
-python3 send_falcon_event.py --host WS-0142 --cve DEMO-CVE-0001 \
-  --mock-url http://<helper-ip>:8080 --eda-url <your EDA URL>
+python3 -B /opt/mock-falcon/send_falcon_event.py --host WS-0142 --cve DEMO-CVE-0001 \
+  --mock-url http://<aap-private-ip>:9080 --eda-url <Event Stream URL> \
+  --header "Authorization: <your token>" --insecure
 ```
-Add `--header "Authorization: Bearer <token>"` if your Event Stream uses token auth. Expect a rule match and a job that launches by itself.
+The token goes in as-is (no "Bearer"). `--insecure` skips TLS verification for AAP's self-signed certificate. Expect `HTTP 200`, a rule match, and a **Remediate Notepad++ CVE** job that launches by itself within a second or two.
 
 ## 4. Recording (about 5 minutes)
 
@@ -125,12 +136,14 @@ Before each take: run **Reset Notepad++ (demo)** and reset the mock. The rule th
 
 ## 5. Troubleshooting
 
-- **Cannot connect (WinRM):** security group allows 5986 from AAP's private IP; `ansible_host` is the private IP; `Get-ChildItem WSMan:\localhost\Listener` shows HTTPS; Machine credential is right.
-- **`ansible.windows` not found:** EE lacks it; add a Hub/Galaxy credential for project sync or use a Windows-capable EE.
+- **Cannot connect (WinRM), "connect timeout":** the port is blocked. This lab uses 5985; check the security group allows it from AAP's private IP and `ansible_host` is the Windows private IP. If you switch to 5986, both the security group and the HTTPS listener (`Get-ChildItem WSMan:\localhost\Listener`) must be in place.
+- **`ansible.windows` not found:** EE lacks it; use the Default execution environment (`ee-supported`).
+- **Activation fails with "Please login to the Red Hat Registry":** pick the **Hub** decision environment instead of the `registry.redhat.io` one.
+- **Sender gets HTTP 401/403:** the token in `--header "Authorization: ..."` doesn't match the Token Event Stream credential. **SSL error:** add `--insecure`.
 - **Download fails:** the Windows instance has no outbound internet (check route table / NAT). Test with `Invoke-WebRequest https://github.com` on the host, or host the installers yourself and change `npp_release_base`.
 - **Installer exits non-zero / version unchanged:** run the installer by hand with `/S` on the host and check Help > About; make sure Notepad++ was not open in another session.
 - **Reset assert fails:** an older uninstall may have left files; delete `C:\Program Files\Notepad++` and rerun the reset.
-- **Falcon poll times out:** the EE cannot reach `<helper>:8080` (security group, `firewall-cmd`), or the finding was never registered.
+- **Falcon poll times out:** the EE cannot reach `<aap-private-ip>:9080` (`systemctl status mock-falcon`), or the finding was never registered.
 - **No job from the event:** check the activation log, the AAP credential on the activation, the exact template name, and prompt-on-launch for Limit and Variables. Mind the 2-minute throttle.
 
 ## 6. Moving to a real Falcon tenant
