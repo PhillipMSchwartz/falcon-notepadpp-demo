@@ -8,10 +8,12 @@ all:
     windows_endpoints:
       hosts:
         WS-0142:
-          ansible_host: 10.0.0.10            # REPLACE with the Windows instance's PRIVATE IP
+          ansible_host: 172.31.12.7          # Windows instance's PRIVATE IP
       vars:
         ansible_connection: winrm
-        ansible_port: 5986
+        ansible_port: 5985
         ansible_winrm_transport: ntlm
-        ansible_winrm_scheme: https
-        ansible_winrm_server_cert_validation: ignore   # lab only (self-signed cert)
+        ansible_winrm_scheme: http
+        ansible_winrm_message_encryption: always   # NTLM encrypts the payload over HTTP
+        # HTTPS alternative (needs 5986 open end to end):
+        # ansible_port: 5986, ansible_winrm_scheme: https, ansible_winrm_server_cert_validation: ignore
