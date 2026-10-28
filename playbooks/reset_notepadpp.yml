@@ -57,3 +57,13 @@
         that: (current.output[0] | trim) is version(fixed_version, '<')
         success_msg: "{{ inventory_hostname }}: Notepad++ {{ current.output[0] | trim }} (vulnerable, ready for the demo)"
         fail_msg: "{{ inventory_hostname }} reports Notepad++ {{ current.output[0] | trim }}, not below {{ fixed_version }}"
+
+    # Lab only: clears mock_falcon.py findings so the status page starts empty.
+    # Skipped when no Falcon credential is attached; never point this at a real Falcon tenant.
+    - name: Clear findings in mock Falcon
+      ansible.builtin.uri:
+        url: "{{ lookup('env', 'FALCON_API_BASE') }}/mock/reset"
+        method: POST
+      delegate_to: localhost
+      run_once: true
+      when: lookup('env', 'FALCON_API_BASE') | length > 0
