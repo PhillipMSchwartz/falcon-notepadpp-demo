@@ -14,7 +14,7 @@ What it fakes (response shapes are approximated from the real API):
 Limitation: it closes after N polls; it does not check the endpoint. The Notepad++ update
 on the Windows host is real; only the Falcon status is simulated.
 
-Run:  python3 mock_falcon.py --port 8080 --close-after 3
+Run:  python3 mock_falcon.py --port 9080 --close-after 3   (or install mock-falcon.service)
 """
 import argparse, html, json, re, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -111,7 +111,7 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--port", type=int, default=8080)
+    ap.add_argument("--port", type=int, default=9080)
     ap.add_argument("--close-after", type=int, default=3, help="polls before a finding shows closed")
     args = ap.parse_args()
     banner(f"listening on 0.0.0.0:{args.port}; findings close after {args.close_after} polls")

@@ -7,17 +7,19 @@ SIMULATED: this is not CrowdStrike. It does two things, in order:
 
 Examples
   python3 send_falcon_event.py --host WS-0142 --cve DEMO-CVE-0001 \
-      --mock-url http://10.0.0.20:8080 --eda-url http://10.0.0.20:5000/endpoint
+      --mock-url http://<aap-private-ip>:9080 --eda-url <Event Stream URL> \
+      --header "Authorization: <token>" --insecure
 
-  # AAP 2.5 Event Stream with token auth (header name/value come from your Event Stream settings):
-  python3 send_falcon_event.py ... --header "Authorization: Bearer <token>"
+  # Token Event Stream credentials expect the token as-is (no "Bearer").
+  # --insecure skips TLS verification for AAP's self-signed certificate.
 """
-import argparse, json, sys, time, urllib.request, urllib.error
+import argparse, json, ssl, sys, time, urllib.request, urllib.error
 
-def post(url, body, headers=None):
+def post(url, body, headers=None, insecure=False):
     req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
                                  headers={"Content-Type": "application/json", **(headers or {})})
-    with urllib.request.urlopen(req, timeout=15) as r:
+    ctx = ssl._create_unverified_context() if insecure else None
+    with urllib.request.urlopen(req, timeout=15, context=ctx) as r:
         return r.status
 
 def main():
@@ -29,6 +31,7 @@ def main():
     ap.add_argument("--mock-url", required=True, help="base URL of mock_falcon.py")
     ap.add_argument("--eda-url", required=True, help="Event-Driven Ansible webhook / Event Stream URL")
     ap.add_argument("--header", action="append", default=[], help='extra header, e.g. "Authorization: Bearer abc"')
+    ap.add_argument("--insecure", action="store_true", help="skip TLS verification for the EDA URL (lab, self-signed cert)")
     a = ap.parse_args()
 
     headers = {}
@@ -44,7 +47,7 @@ def main():
         post(a.mock_url.rstrip("/") + "/mock/findings", {"hostname": a.host, "cve": a.cve, "app": a.app})
         print("[1/2] finding registered in mock Falcon: OPEN")
         payload = {"severity": a.severity, "app": a.app, "cve": a.cve, "hostname": a.host}
-        status = post(a.eda_url, payload, headers)
+        status = post(a.eda_url, payload, headers, a.insecure)
         print(f"[2/2] webhook delivered to Event-Driven Ansible: HTTP {status}")
         print("      payload:", json.dumps(payload))
     except urllib.error.HTTPError as e:

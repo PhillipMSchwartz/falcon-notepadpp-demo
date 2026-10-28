@@ -1,0 +1,12 @@
+[Unit]
+Description=Mock Falcon API for the AAP Notepad++ demo (NOT CrowdStrike)
+After=network-online.target
+
+[Service]
+# Port 9080 because AAP's own nginx already listens on 8080 on the AAP host
+ExecStart=/usr/bin/python3 /opt/mock-falcon/mock_falcon.py --port 9080 --close-after 3
+Restart=on-failure
+DynamicUser=yes
+
+[Install]
+WantedBy=multi-user.target
