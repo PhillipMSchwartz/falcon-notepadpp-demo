@@ -90,7 +90,7 @@ Status page: `http://<aap-host>:9080/` (red "MOCK FALCON" banner). Logs: `journa
 5. **Inventory** `Windows Endpoints`: group `windows_endpoints` with the WinRM vars from `inventory/windows_endpoints.yml`, and host `WS-0142` with `ansible_host` set to the Windows private IP.
 6. **Job templates:**
    - `Remediate Notepad++ CVE` (name must match the rulebook exactly): playbook `playbooks/remediate_notepadpp.yml`; credentials Machine + `Falcon API (demo)`; **Prompt on launch** for **Limit** and **Variables**.
-   - `Reset Notepad++ (demo)`: playbook `playbooks/reset_notepadpp.yml`; Machine credential only.
+   - `Reset Notepad++ (demo)`: playbook `playbooks/reset_notepadpp.yml`; Machine credential + `Falcon API (demo)` (so it also clears the mock).
 
 ### Step 5: Test by hand
 1. Launch **Reset Notepad++ (demo)**. Expect the final assert: Notepad++ 8.8.1 (vulnerable, ready).
@@ -117,9 +117,18 @@ python3 -B /opt/mock-falcon/send_falcon_event.py --host WS-0142 --cve DEMO-CVE-0
 ```
 The token goes in as-is (no "Bearer"). `--insecure` skips TLS verification for AAP's self-signed certificate. Expect `HTTP 200`, a rule match, and a **Remediate Notepad++ CVE** job that launches by itself within a second or two.
 
+### Demo-day shortcuts (on the AAP host)
+- **One-click reset:** with the `Falcon API (demo)` credential attached, **Reset Notepad++ (demo)** also clears the mock's findings.
+- **Short sender command:** install `mock/fire_demo_event.sh` as `/usr/local/bin/fire-demo-event`, put `EDA_URL=...` and `MOCK_URL=...` in `/etc/falcon-demo.env`, and store your token once:
+  ```bash
+  umask 077; printf '%s' 'YOUR_TOKEN' > ~/.falcon-demo-token
+  ```
+  Then on camera just run `fire-demo-event`.
+- **Survives reboots:** AAP services and `mock-falcon` start at boot, and the activation's restart policy is `always`. Give the instance an **Elastic IP**, or its public DNS name (used by the Event Stream URL and the EDA credential) changes after a stop/start.
+
 ## 4. Recording (about 5 minutes)
 
-Before each take: run **Reset Notepad++ (demo)** and reset the mock. The rule throttles per host for 2 minutes, so wait that long between takes.
+Before each take: run **Reset Notepad++ (demo)** (it also clears the mock). The rule throttles per host for 2 minutes, so wait that long between takes.
 
 | Time | Screen | Say |
 |---|---|---|
