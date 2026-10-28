@@ -5,7 +5,7 @@ fields:
   - id: base_url
     type: string
     label: Falcon API base URL
-    help_text: "Lab: http://<mock host>:8080   Real: your Falcon cloud API URL"
+    help_text: "Lab: http://<mock host>:9080   Real: your Falcon cloud API URL"
   - id: client_id
     type: string
     label: API client ID
