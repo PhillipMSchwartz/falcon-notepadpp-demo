@@ -19,6 +19,8 @@
 
 ---
 
+**Rebuilding the whole lab from nothing** (new AWS account, CloudFormation + one script): see [rebuild/REBUILD.md](rebuild/REBUILD.md).
+
 ## 1. Repo layout
 
 Push this whole folder to a Git repo AAP can read (GitHub/GitLab; a private repo needs a Source Control credential).
